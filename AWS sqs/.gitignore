@@ -1,0 +1,7 @@
+.terraform/
+*.tfstate*
+*.tfstate
+.idea
+go.mod
+go.sum
+.terraform.lock.hcl

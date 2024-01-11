@@ -1,0 +1,75 @@
+# Terraform CI/CD Pipeline for Terraform modules
+# Versioning module and publishing to TFE private registry catalog
+resources:
+  repositories:
+  - repository: TemplateRepo
+    type: git
+    name: shared-it-iac-pipeline-templates
+    ref: master
+
+# Execute this pipeline on commit or pull request to these branches.  Branch policies in UI control pull requests.
+trigger:
+  branches:
+    include:
+      - master
+      - release
+
+# These values are updated when ready to release
+# major = Terraform major release or module has several breaking changes
+# minior = Terraform module minor update, small feature adds, etc
+# patch = Terraform module bug fix, hotfix. 
+
+# Global variables available in every stage/job. Stage-Job-Steps. Steps override jobs, jobs override stages, stages override these globals. 
+variables:
+  major: 9
+  minor: 1
+  patch: 0
+  agentPool: 'SEU RHEL8 VX Shared'
+
+parameters:
+  - name: tagRepo
+    default: True
+    type: boolean
+
+# Test stage executes job template (linting, terratests, checkmarx, checkov)
+# Checks if the build tag already exists; if it does the build fails at this stage
+
+stages:
+  - stage: Test
+    displayName: "Test Stage"
+    pool: $(agentPool)
+    jobs:
+    - template: templates/terraform/jobs/test-module-jobs.yml@TemplateRepo
+
+  - stage: Validate
+    displayName: "Validation Stage"
+    dependsOn: Test
+    jobs:
+    - template: templates/terraform/jobs/validation-module-jobs.yml@TemplateRepo
+      parameters:
+        jobPool: $(agentPool)
+    
+# This stage will build a tag with $(major).$(minor).$(patch) for a release
+# Will append with "-prerelease" for a prelease
+# Will append with branch name for a dry run
+
+  - stage: Build_and_Tag
+    displayName: "Build and Tag Stage"
+    pool: $(agentPool)
+    dependsOn: Validate
+    condition: and(succeeded(),  ne(variables['Build.Reason'], 'PullRequest'))
+    jobs:
+      - template: templates/terraform/jobs/terraform-module-build-job.yml@TemplateRepo
+        parameters:
+          tagRepo: ${{ parameters.tagRepo }}
+          jobPool: $(agentPool)
+    
+  # Only runs when something is merged into master
+  - ${{ if and(eq(variables['Build.SourceBranch'], 'refs/heads/master'), ne(variables['Build.Reason'], 'PullRequest')) }}:
+    - stage: CreateReleasePR
+      displayName: "Create Release PR"
+      pool: $(agentPool)
+      dependsOn: Build_and_Tag
+      condition: succeeded()
+      jobs:
+        - template: templates/terraform/jobs/module-release-pr.yml@TemplateRepo
