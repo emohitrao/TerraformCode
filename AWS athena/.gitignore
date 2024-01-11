@@ -1,0 +1,6 @@
+.terraform
+terraform.tfstate*
+
+# go files
+go.mod
+go.sum
